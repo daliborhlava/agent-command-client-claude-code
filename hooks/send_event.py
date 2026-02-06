@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 SERVER_URL = os.environ.get("AGENT_COMMAND_URL", "http://localhost:8787")
 TIMEOUT = 5
 MAX_TRANSCRIPT_LINES = 100
-CLIENT_VERSION = "1.0.6"
+CLIENT_VERSION = "1.1.0"
 
 
 def read_transcript(transcript_path: str | None) -> list[dict]:
@@ -118,6 +118,25 @@ def simplify_transcript(entries: list[dict]) -> list[dict]:
     return simplified
 
 
+def get_tmux_session() -> str | None:
+    """Get current tmux session name if running inside tmux."""
+    if not os.environ.get("TMUX"):
+        return None
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["tmux", "display-message", "-p", "#S"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip() or None
+    except Exception:
+        pass
+    return None
+
+
 def get_host_info() -> dict:
     """Get host identification info."""
     return {
@@ -158,10 +177,12 @@ def extract_usage_from_transcript(entries: list[dict]) -> dict:
 def send_event(data: dict) -> None:
     host_info = get_host_info()
     hook_event = data.get("hook_event_name")
+    tmux_session = get_tmux_session()
 
     event = {
         "session_id": data.get("session_id", "unknown"),
         "monitor_id": os.environ.get("AGENT_MONITOR_ID"),
+        "tmux_session": tmux_session,
         "hook_event": hook_event,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "tool_name": data.get("tool_name"),
