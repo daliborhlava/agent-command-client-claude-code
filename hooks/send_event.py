@@ -120,8 +120,7 @@ def simplify_transcript(entries: list[dict]) -> list[dict]:
 
 def get_tmux_session() -> str | None:
     """Get current tmux session name if running inside tmux."""
-    if not os.environ.get("TMUX"):
-        return None
+    # Try to get session name even if $TMUX is not set (can happen with some spawn methods)
     try:
         import subprocess
         result = subprocess.run(
@@ -130,8 +129,8 @@ def get_tmux_session() -> str | None:
             text=True,
             timeout=2,
         )
-        if result.returncode == 0:
-            return result.stdout.strip() or None
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
     except Exception:
         pass
     return None
