@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 SERVER_URL = os.environ.get("AGENT_COMMAND_URL", "http://localhost:8787")
 TIMEOUT = 5
 MAX_TRANSCRIPT_LINES = 100
-CLIENT_VERSION = "1.1.0"
+CLIENT_VERSION = "1.1.1"
 
 
 def read_transcript(transcript_path: str | None) -> list[dict]:
