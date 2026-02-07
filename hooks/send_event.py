@@ -120,7 +120,12 @@ def simplify_transcript(entries: list[dict]) -> list[dict]:
 
 def get_tmux_session() -> str | None:
     """Get current tmux session name if running inside tmux."""
-    # Try to get session name even if $TMUX is not set (can happen with some spawn methods)
+    # First check our own env var (set by claude-wrapper)
+    session = os.environ.get("CLAUDE_TMUX_SESSION")
+    if session:
+        return session
+
+    # Fallback: try tmux command directly
     try:
         import subprocess
         result = subprocess.run(
