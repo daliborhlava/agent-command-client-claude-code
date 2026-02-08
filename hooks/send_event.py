@@ -13,8 +13,9 @@ from urllib.request import Request, urlopen
 
 SERVER_URL = os.environ.get("AGENT_COMMAND_URL", "http://localhost:8787")
 TIMEOUT = 5
+PERMISSION_TIMEOUT = 300
 MAX_TRANSCRIPT_LINES = 100
-CLIENT_VERSION = "1.1.1"
+CLIENT_VERSION = "1.2.0"
 
 
 def read_transcript(transcript_path: str | None) -> list[dict]:
@@ -178,9 +179,48 @@ def extract_usage_from_transcript(entries: list[dict]) -> dict:
     }
 
 
+def send_permission_request(data: dict) -> None:
+    """Send permission request via long-poll endpoint and print decision to stdout."""
+    session_id = data.get("session_id", "unknown")
+    tool_name = data.get("tool_name")
+    tool_input = data.get("tool_input")
+
+    ask_response = json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "PermissionRequest",
+            "decision": {"behavior": "ask"},
+        }
+    })
+
+    payload = json.dumps({
+        "tool_name": tool_name,
+        "tool_input": tool_input,
+    }).encode("utf-8")
+
+    request = Request(
+        f"{SERVER_URL}/api/agents/{session_id}/permission",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=PERMISSION_TIMEOUT) as response:
+            result = json.loads(response.read().decode("utf-8"))
+            print(json.dumps(result))
+    except Exception:
+        print(ask_response)
+
+
 def send_event(data: dict) -> None:
-    host_info = get_host_info()
     hook_event = data.get("hook_event_name")
+
+    # PermissionRequest uses a dedicated long-poll endpoint
+    if hook_event == "PermissionRequest":
+        send_permission_request(data)
+        return
+
+    host_info = get_host_info()
     tmux_session = get_tmux_session()
 
     event = {
