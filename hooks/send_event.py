@@ -212,6 +212,68 @@ def send_permission_request(data: dict) -> None:
         print(ask_response)
 
 
+def send_question_request(data: dict) -> None:
+    """Send AskUserQuestion via long-poll endpoint and print response to stdout."""
+    session_id = data.get("session_id", "unknown")
+    tool_input = data.get("tool_input", {})
+
+    allow_response = json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+        }
+    })
+
+    payload = json.dumps({
+        "tool_input": tool_input,
+    }).encode("utf-8")
+
+    request = Request(
+        f"{SERVER_URL}/api/agents/{session_id}/question",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=PERMISSION_TIMEOUT) as response:
+            result = json.loads(response.read().decode("utf-8"))
+            print(json.dumps(result))
+    except Exception:
+        print(allow_response)
+
+
+def send_plan_request(data: dict) -> None:
+    """Send ExitPlanMode via long-poll endpoint and print response to stdout."""
+    session_id = data.get("session_id", "unknown")
+    tool_input = data.get("tool_input", {})
+
+    allow_response = json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+        }
+    })
+
+    payload = json.dumps({
+        "tool_input": tool_input,
+    }).encode("utf-8")
+
+    request = Request(
+        f"{SERVER_URL}/api/agents/{session_id}/plan",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=PERMISSION_TIMEOUT) as response:
+            result = json.loads(response.read().decode("utf-8"))
+            print(json.dumps(result))
+    except Exception:
+        print(allow_response)
+
+
 def send_event(data: dict) -> None:
     hook_event = data.get("hook_event_name")
 
@@ -219,6 +281,16 @@ def send_event(data: dict) -> None:
     if hook_event == "PermissionRequest":
         send_permission_request(data)
         return
+
+    # PreToolUse intercepts for AskUserQuestion and ExitPlanMode
+    if hook_event == "PreToolUse":
+        tool_name = data.get("tool_name")
+        if tool_name == "AskUserQuestion":
+            send_question_request(data)
+            return
+        if tool_name == "ExitPlanMode":
+            send_plan_request(data)
+            return
 
     host_info = get_host_info()
     tmux_session = get_tmux_session()
