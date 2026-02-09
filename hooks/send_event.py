@@ -15,7 +15,7 @@ SERVER_URL = os.environ.get("AGENT_COMMAND_URL", "http://localhost:8787")
 TIMEOUT = 5
 PERMISSION_TIMEOUT = 300
 MAX_TRANSCRIPT_LINES = 100
-CLIENT_VERSION = "1.2.2"
+CLIENT_VERSION = "1.2.3"
 
 
 def read_transcript(transcript_path: str | None) -> list[dict]:
@@ -228,6 +228,57 @@ def extract_usage_from_transcript(entries: list[dict]) -> dict:
     }
 
 
+def _send_pre_event(data: dict) -> None:
+    """Send a PreToolUse event with transcript to /api/events before long-polling.
+
+    When AskUserQuestion/ExitPlanMode are intercepted, the normal event path is
+    skipped.  This helper sends the regular event (with transcript) first so that
+    any assistant text preceding the tool call is visible on the dashboard.
+    """
+    host_info = get_host_info()
+    event = {
+        "session_id": data.get("session_id", "unknown"),
+        "monitor_id": os.environ.get("AGENT_MONITOR_ID"),
+        "tmux_session": get_tmux_session(),
+        "hook_event": "PreToolUse",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "tool_name": data.get("tool_name"),
+        "tool_input": data.get("tool_input"),
+        "tool_use_id": data.get("tool_use_id"),
+        "cwd": data.get("cwd"),
+        "hostname": host_info["hostname"],
+        "platform": host_info["platform"],
+        "user": host_info["user"],
+        "model": data.get("model"),
+        "permission_mode": data.get("permission_mode"),
+        "extra": {},
+        "transcript": [],
+    }
+
+    transcript_path = data.get("transcript_path")
+    if transcript_path:
+        path = Path(transcript_path)
+        if path.exists():
+            entries = read_transcript(transcript_path)
+            event["transcript"] = simplify_transcript(entries)
+            usage = extract_usage_from_transcript(entries)
+            if usage:
+                event["extra"]["usage"] = usage
+
+    try:
+        payload = json.dumps(event).encode("utf-8")
+        req = Request(
+            f"{SERVER_URL}/api/events",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req, timeout=TIMEOUT) as resp:
+            resp.read()
+    except Exception:
+        pass
+
+
 def send_permission_request(data: dict) -> None:
     """Send permission request via long-poll endpoint and print decision to stdout."""
     session_id = data.get("session_id", "unknown")
@@ -345,9 +396,11 @@ def send_event(data: dict) -> None:
     if hook_event == "PreToolUse":
         tool_name = data.get("tool_name")
         if tool_name == "AskUserQuestion":
+            _send_pre_event(data)
             send_question_request(data)
             return
         if tool_name == "ExitPlanMode":
+            _send_pre_event(data)
             send_plan_request(data)
             return
 
