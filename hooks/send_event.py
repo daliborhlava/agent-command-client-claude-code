@@ -15,7 +15,7 @@ SERVER_URL = os.environ.get("AGENT_COMMAND_URL", "http://localhost:8787")
 TIMEOUT = 5
 PERMISSION_TIMEOUT = 300
 MAX_TRANSCRIPT_LINES = 100
-CLIENT_VERSION = "1.2.1"
+CLIENT_VERSION = "1.2.2"
 
 
 def read_transcript(transcript_path: str | None) -> list[dict]:
