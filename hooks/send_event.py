@@ -15,7 +15,7 @@ SERVER_URL = os.environ.get("AGENT_COMMAND_URL", "http://localhost:8787")
 TIMEOUT = 5
 PERMISSION_TIMEOUT = 300
 MAX_TRANSCRIPT_LINES = 100
-CLIENT_VERSION = "1.2.0"
+CLIENT_VERSION = "1.2.1"
 
 
 def read_transcript(transcript_path: str | None) -> list[dict]:
@@ -65,9 +65,44 @@ def extract_text_content(content) -> str | None:
     return None
 
 
+def extract_thinking_content(content) -> str | None:
+    """Extract thinking content from message content blocks."""
+    if not isinstance(content, list):
+        return None
+    parts = []
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "thinking":
+            thinking = block.get("thinking", "")
+            if thinking:
+                parts.append(thinking)
+    return "\n".join(parts) if parts else None
+
+
+def extract_tool_results(entries: list[dict]) -> dict[str, str]:
+    """Extract tool_result text keyed by tool_use_id from user entries."""
+    results = {}
+    for entry in entries:
+        if entry.get("type") != "user":
+            continue
+        content = entry.get("message", {}).get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "tool_result":
+                tool_use_id = block.get("tool_use_id")
+                if not tool_use_id:
+                    continue
+                result_content = block.get("content")
+                text = extract_text_content(result_content)
+                if text:
+                    results[tool_use_id] = text[:2000]
+    return results
+
+
 def simplify_transcript(entries: list[dict]) -> list[dict]:
     """Simplify transcript entries for sending to server."""
     simplified = []
+    tool_results = extract_tool_results(entries)
 
     for entry in entries:
         entry_type = entry.get("type")
@@ -80,8 +115,13 @@ def simplify_transcript(entries: list[dict]) -> list[dict]:
         content = message.get("content")
         timestamp = entry.get("timestamp")
 
-        # Extract text content
+        # Extract text and thinking content
         text = extract_text_content(content)
+        thinking = extract_thinking_content(content)
+
+        # Skip whitespace-only text (e.g. '\n\n' preamble entries)
+        if text and not text.strip():
+            text = None
 
         # Also extract tool_use from assistant messages
         tool_uses = []
@@ -94,19 +134,23 @@ def simplify_transcript(entries: list[dict]) -> list[dict]:
                         "tool_use_id": block.get("id"),
                     })
 
-        # Add text message if present
-        if text:
-            simplified.append({
+        # Add message entry if text or thinking present
+        if text or thinking:
+            msg = {
                 "type": "message",
                 "role": role,
-                "text": text[:2000],
                 "uuid": entry.get("uuid"),
                 "timestamp": timestamp,
-            })
+            }
+            if text:
+                msg["text"] = text[:2000]
+            if thinking:
+                msg["thinking"] = thinking[:5000]
+            simplified.append(msg)
 
         # Add tool uses as separate entries
         for tool in tool_uses:
-            simplified.append({
+            tool_entry = {
                 "type": "tool_use",
                 "role": "assistant",
                 "tool_name": tool["tool_name"],
@@ -114,7 +158,12 @@ def simplify_transcript(entries: list[dict]) -> list[dict]:
                 "tool_use_id": tool["tool_use_id"],
                 "uuid": entry.get("uuid"),
                 "timestamp": timestamp,
-            })
+            }
+            # Attach tool result if available
+            result = tool_results.get(tool["tool_use_id"])
+            if result:
+                tool_entry["tool_response"] = result
+            simplified.append(tool_entry)
 
     return simplified
 
@@ -278,7 +327,17 @@ def send_event(data: dict) -> None:
     hook_event = data.get("hook_event_name")
 
     # PermissionRequest uses a dedicated long-poll endpoint
+    # Skip tools already handled by their own PreToolUse interceptors
     if hook_event == "PermissionRequest":
+        tool_name = data.get("tool_name")
+        if tool_name in ("AskUserQuestion", "ExitPlanMode"):
+            print(json.dumps({
+                "hookSpecificOutput": {
+                    "hookEventName": "PermissionRequest",
+                    "decision": {"behavior": "allow"},
+                }
+            }))
+            return
         send_permission_request(data)
         return
 
@@ -340,7 +399,7 @@ def send_event(data: dict) -> None:
     if "reason" in data:
         event["extra"]["reason"] = data["reason"]
 
-    if hook_event in ("Stop", "SessionStart", "PostToolUse", "PostToolUseFailure"):
+    if hook_event in ("Stop", "SessionStart", "PostToolUse", "PostToolUseFailure", "UserPromptSubmit"):
         transcript_path = data.get("transcript_path")
         if transcript_path:
             path = Path(transcript_path)
@@ -352,6 +411,15 @@ def send_event(data: dict) -> None:
                 usage = extract_usage_from_transcript(entries)
                 if usage:
                     event["extra"]["usage"] = usage
+
+                # Extract model from transcript if not already set
+                if not event.get("model"):
+                    for entry in reversed(entries):
+                        if entry.get("type") == "assistant":
+                            model = entry.get("message", {}).get("model")
+                            if model:
+                                event["model"] = model
+                                break
 
                 print(f"[agent-command] {hook_event}: {len(simplified)} entries", file=sys.stderr)
 
