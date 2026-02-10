@@ -12,7 +12,7 @@
       "name": "agent-command-client",
       "source": "./",
       "description": "Claude Code hooks for Agent Command monitoring server",
-      "version": "1.2.3",
+      "version": "1.2.4",
       "author": {
         "name": "daliborhlava"
       },

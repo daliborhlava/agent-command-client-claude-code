@@ -15,7 +15,7 @@ SERVER_URL = os.environ.get("AGENT_COMMAND_URL", "http://localhost:8787")
 TIMEOUT = 5
 PERMISSION_TIMEOUT = 300
 MAX_TRANSCRIPT_LINES = 100
-CLIENT_VERSION = "1.2.3"
+CLIENT_VERSION = "1.2.4"
 
 
 def read_transcript(transcript_path: str | None) -> list[dict]:
@@ -169,26 +169,8 @@ def simplify_transcript(entries: list[dict]) -> list[dict]:
 
 
 def get_tmux_session() -> str | None:
-    """Get current tmux session name if running inside tmux."""
-    # First check our own env var (set by claude-wrapper)
-    session = os.environ.get("CLAUDE_TMUX_SESSION")
-    if session:
-        return session
-
-    # Fallback: try tmux command directly
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["tmux", "display-message", "-p", "#S"],
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except Exception:
-        pass
-    return None
+    """Get current tmux session name if running inside tmux via claude-wrapper."""
+    return os.environ.get("CLAUDE_TMUX_SESSION") or None
 
 
 def get_host_info() -> dict:
