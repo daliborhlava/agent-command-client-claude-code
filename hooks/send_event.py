@@ -15,7 +15,7 @@ SERVER_URL = os.environ.get("AGENT_COMMAND_URL", "http://localhost:8787")
 TIMEOUT = 5
 PERMISSION_TIMEOUT = 300
 MAX_TRANSCRIPT_LINES = 100
-CLIENT_VERSION = "1.2.4"
+CLIENT_VERSION = "1.2.5"
 
 
 def read_transcript(transcript_path: str | None) -> list[dict]:
@@ -78,8 +78,8 @@ def extract_thinking_content(content) -> str | None:
     return "\n".join(parts) if parts else None
 
 
-def extract_tool_results(entries: list[dict]) -> dict[str, str]:
-    """Extract tool_result text keyed by tool_use_id from user entries."""
+def extract_tool_results(entries: list[dict]) -> dict[str, dict]:
+    """Extract tool_result text and error status keyed by tool_use_id from user entries."""
     results = {}
     for entry in entries:
         if entry.get("type") != "user":
@@ -95,7 +95,10 @@ def extract_tool_results(entries: list[dict]) -> dict[str, str]:
                 result_content = block.get("content")
                 text = extract_text_content(result_content)
                 if text:
-                    results[tool_use_id] = text[:2000]
+                    results[tool_use_id] = {
+                        "text": text[:2000],
+                        "is_error": bool(block.get("is_error")),
+                    }
     return results
 
 
@@ -162,7 +165,9 @@ def simplify_transcript(entries: list[dict]) -> list[dict]:
             # Attach tool result if available
             result = tool_results.get(tool["tool_use_id"])
             if result:
-                tool_entry["tool_response"] = result
+                tool_entry["tool_response"] = result["text"]
+                if result["is_error"]:
+                    tool_entry["is_error"] = True
             simplified.append(tool_entry)
 
     return simplified
