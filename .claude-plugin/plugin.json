@@ -1,7 +1,7 @@
 {
   "name": "agent-command-client",
   "description": "Claude Code hooks for Agent Command monitoring server. Sends real-time events including tool usage, transcripts, and session state to a central monitoring dashboard.",
-  "version": "1.2.5",
+  "version": "1.2.6",
   "author": {
     "name": "daliborhlava"
   },

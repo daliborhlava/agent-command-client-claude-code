@@ -15,7 +15,7 @@ SERVER_URL = os.environ.get("AGENT_COMMAND_URL", "http://localhost:8787")
 TIMEOUT = 5
 PERMISSION_TIMEOUT = 300
 MAX_TRANSCRIPT_LINES = 100
-CLIENT_VERSION = "1.2.5"
+CLIENT_VERSION = "1.2.6"
 
 
 def read_transcript(transcript_path: str | None) -> list[dict]:
@@ -330,17 +330,13 @@ def send_question_request(data: dict) -> None:
         print(allow_response)
 
 
-def send_plan_request(data: dict) -> None:
-    """Send ExitPlanMode via long-poll endpoint and print response to stdout."""
+def _notify_plan(data: dict) -> None:
+    """Fire-and-forget notification to server that ExitPlanMode was called.
+
+    Does NOT print any hookSpecificOutput — the native CLI prompt handles approval.
+    """
     session_id = data.get("session_id", "unknown")
     tool_input = data.get("tool_input", {})
-
-    allow_response = json.dumps({
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "allow",
-        }
-    })
 
     payload = json.dumps({
         "tool_input": tool_input,
@@ -354,11 +350,10 @@ def send_plan_request(data: dict) -> None:
     )
 
     try:
-        with urlopen(request, timeout=PERMISSION_TIMEOUT) as response:
-            result = json.loads(response.read().decode("utf-8"))
-            print(json.dumps(result))
+        with urlopen(request, timeout=TIMEOUT) as response:
+            response.read()
     except Exception:
-        print(allow_response)
+        pass
 
 
 def send_event(data: dict) -> None:
@@ -368,11 +363,20 @@ def send_event(data: dict) -> None:
     # Skip tools already handled by their own PreToolUse interceptors
     if hook_event == "PermissionRequest":
         tool_name = data.get("tool_name")
-        if tool_name in ("AskUserQuestion", "ExitPlanMode"):
+        if tool_name == "AskUserQuestion":
             print(json.dumps({
                 "hookSpecificOutput": {
                     "hookEventName": "PermissionRequest",
                     "decision": {"behavior": "allow"},
+                }
+            }))
+            return
+        if tool_name == "ExitPlanMode":
+            # Let the native CLI plan approval menu show
+            print(json.dumps({
+                "hookSpecificOutput": {
+                    "hookEventName": "PermissionRequest",
+                    "decision": {"behavior": "ask"},
                 }
             }))
             return
@@ -388,7 +392,7 @@ def send_event(data: dict) -> None:
             return
         if tool_name == "ExitPlanMode":
             _send_pre_event(data)
-            send_plan_request(data)
+            _notify_plan(data)
             return
 
     host_info = get_host_info()
