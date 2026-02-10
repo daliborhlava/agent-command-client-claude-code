@@ -15,7 +15,7 @@ SERVER_URL = os.environ.get("AGENT_COMMAND_URL", "http://localhost:8787")
 TIMEOUT = 5
 PERMISSION_TIMEOUT = 300
 MAX_TRANSCRIPT_LINES = 100
-CLIENT_VERSION = "1.2.6"
+CLIENT_VERSION = "1.2.7"
 
 
 def read_transcript(transcript_path: str | None) -> list[dict]:
@@ -340,6 +340,11 @@ def _notify_plan(data: dict) -> None:
 
     payload = json.dumps({
         "tool_input": tool_input,
+        "plan_options": [
+            {"label": "Auto-accept edits (keep context)", "keys": ["Down", "Enter"]},
+            {"label": "Clear context & auto-accept", "keys": ["Enter"]},
+            {"label": "Manually approve edits", "keys": ["Down", "Down", "Enter"]},
+        ],
     }).encode("utf-8")
 
     request = Request(
