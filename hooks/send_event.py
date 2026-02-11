@@ -15,7 +15,13 @@ SERVER_URL = os.environ.get("AGENT_COMMAND_URL", "http://localhost:8787")
 TIMEOUT = 5
 PERMISSION_TIMEOUT = 300
 MAX_TRANSCRIPT_LINES = 100
-CLIENT_VERSION = "1.2.7"
+CLIENT_VERSION = "1.2.8"
+
+
+def get_session_id(data: dict) -> str:
+    """Use monitor_id as session_id for daemon-spawned sessions."""
+    monitor_id = os.environ.get("AGENT_MONITOR_ID")
+    return monitor_id or data.get("session_id", "unknown")
 
 
 def read_transcript(transcript_path: str | None) -> list[dict]:
@@ -224,7 +230,7 @@ def _send_pre_event(data: dict) -> None:
     """
     host_info = get_host_info()
     event = {
-        "session_id": data.get("session_id", "unknown"),
+        "session_id": get_session_id(data),
         "monitor_id": os.environ.get("AGENT_MONITOR_ID"),
         "tmux_session": get_tmux_session(),
         "hook_event": "PreToolUse",
@@ -268,7 +274,7 @@ def _send_pre_event(data: dict) -> None:
 
 def send_permission_request(data: dict) -> None:
     """Send permission request via long-poll endpoint and print decision to stdout."""
-    session_id = data.get("session_id", "unknown")
+    session_id = get_session_id(data)
     tool_name = data.get("tool_name")
     tool_input = data.get("tool_input")
 
@@ -301,7 +307,7 @@ def send_permission_request(data: dict) -> None:
 
 def send_question_request(data: dict) -> None:
     """Send AskUserQuestion via long-poll endpoint and print response to stdout."""
-    session_id = data.get("session_id", "unknown")
+    session_id = get_session_id(data)
     tool_input = data.get("tool_input", {})
 
     allow_response = json.dumps({
@@ -335,7 +341,7 @@ def _notify_plan(data: dict) -> None:
 
     Does NOT print any hookSpecificOutput — the native CLI prompt handles approval.
     """
-    session_id = data.get("session_id", "unknown")
+    session_id = get_session_id(data)
     tool_input = data.get("tool_input", {})
 
     payload = json.dumps({
@@ -404,7 +410,7 @@ def send_event(data: dict) -> None:
     tmux_session = get_tmux_session()
 
     event = {
-        "session_id": data.get("session_id", "unknown"),
+        "session_id": get_session_id(data),
         "monitor_id": os.environ.get("AGENT_MONITOR_ID"),
         "tmux_session": tmux_session,
         "hook_event": hook_event,
