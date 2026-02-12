@@ -221,6 +221,108 @@ def extract_usage_from_transcript(entries: list[dict]) -> dict:
     }
 
 
+def map_tool_kind(tool_name: str | None) -> str:
+    if not tool_name:
+        return "other"
+    normalized = tool_name.lower()
+    if normalized in ("read", "glob", "grep"):
+        return "read"
+    if normalized in ("edit", "write", "notebookedit"):
+        return "edit"
+    if normalized == "bash":
+        return "execute"
+    if normalized in ("websearch", "webfetch"):
+        return "fetch"
+    if normalized in ("enterplanmode", "exitplanmode"):
+        return "switch_mode"
+    return "other"
+
+
+def as_text_payload(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except Exception:
+        return str(value)
+
+
+def build_acp_updates(data: dict, hook_event: str | None) -> list[dict]:
+    updates: list[dict] = []
+    if not hook_event:
+        return updates
+
+    if hook_event == "UserPromptSubmit":
+        prompt = data.get("prompt")
+        if isinstance(prompt, str) and prompt.strip():
+            updates.append(
+                {
+                    "type": "user_message_chunk",
+                    "content": {"type": "text", "text": prompt},
+                }
+            )
+        return updates
+
+    tool_use_id = data.get("tool_use_id")
+    tool_name = data.get("tool_name")
+    if not isinstance(tool_use_id, str) or not tool_use_id:
+        return updates
+
+    if hook_event == "PreToolUse":
+        updates.append(
+            {
+                "type": "tool_call",
+                "toolCallId": tool_use_id,
+                "title": tool_name or "tool",
+                "kind": map_tool_kind(tool_name),
+                "status": "in_progress",
+                "rawInput": data.get("tool_input") if isinstance(data.get("tool_input"), dict) else {},
+            }
+        )
+        return updates
+
+    if hook_event == "PostToolUse":
+        tool_response = data.get("tool_response")
+        response_text = as_text_payload(tool_response)
+        update = {
+            "type": "tool_call_update",
+            "toolCallId": tool_use_id,
+            "title": tool_name or "tool",
+            "kind": map_tool_kind(tool_name),
+            "status": "completed",
+            "rawOutput": tool_response if isinstance(tool_response, dict) else {"text": response_text or ""},
+        }
+        if response_text:
+            update["content"] = [
+                {
+                    "type": "content",
+                    "content": {"type": "text", "text": response_text[:4000]},
+                }
+            ]
+        updates.append(update)
+        return updates
+
+    if hook_event == "PostToolUseFailure":
+        updates.append(
+            {
+                "type": "tool_call_update",
+                "toolCallId": tool_use_id,
+                "title": tool_name or "tool",
+                "kind": map_tool_kind(tool_name),
+                "status": "failed",
+                "error": data.get("error") or data.get("error_message") or "Tool failed",
+                "rawOutput": {
+                    "error": data.get("error") or data.get("error_message") or "Tool failed",
+                },
+            }
+        )
+        return updates
+
+    return updates
+
+
 def _send_pre_event(data: dict) -> None:
     """Send a PreToolUse event with transcript to /api/events before long-polling.
 
@@ -247,6 +349,9 @@ def _send_pre_event(data: dict) -> None:
         "extra": {},
         "transcript": [],
     }
+    acp_updates = build_acp_updates(data, "PreToolUse")
+    if acp_updates:
+        event["extra"]["acp_updates"] = acp_updates
 
     transcript_path = data.get("transcript_path")
     if transcript_path:
@@ -429,6 +534,9 @@ def send_event(data: dict) -> None:
         "extra": {},
         "transcript": [],
     }
+    acp_updates = build_acp_updates(data, hook_event)
+    if acp_updates:
+        event["extra"]["acp_updates"] = acp_updates
 
     if hook_event == "PostToolUseFailure":
         event["error_message"] = data.get("error") or data.get("error_message")
