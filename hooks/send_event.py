@@ -15,13 +15,28 @@ SERVER_URL = os.environ.get("AGENT_COMMAND_URL", "http://localhost:8787")
 TIMEOUT = 5
 PERMISSION_TIMEOUT = 300
 MAX_TRANSCRIPT_LINES = 100
-CLIENT_VERSION = "1.2.8"
+CLIENT_VERSION = "1.2.9"
+DEFAULT_AGENT_TYPE = "claude-code"
+DEFAULT_AGENT_SOURCE = "hooks"
 
 
 def get_session_id(data: dict) -> str:
     """Use monitor_id as session_id for daemon-spawned sessions."""
     monitor_id = os.environ.get("AGENT_MONITOR_ID")
     return monitor_id or data.get("session_id", "unknown")
+
+
+def get_agent_identity() -> tuple[str, str]:
+    """Get stable identity for this client plugin."""
+    agent_type = (
+        os.environ.get("AGENT_COMMAND_AGENT_TYPE", DEFAULT_AGENT_TYPE).strip()
+        or DEFAULT_AGENT_TYPE
+    )
+    agent_source = (
+        os.environ.get("AGENT_COMMAND_AGENT_SOURCE", DEFAULT_AGENT_SOURCE).strip()
+        or DEFAULT_AGENT_SOURCE
+    )
+    return agent_type, agent_source
 
 
 def read_transcript(transcript_path: str | None) -> list[dict]:
@@ -331,10 +346,13 @@ def _send_pre_event(data: dict) -> None:
     any assistant text preceding the tool call is visible on the dashboard.
     """
     host_info = get_host_info()
+    agent_type, agent_source = get_agent_identity()
     event = {
         "session_id": get_session_id(data),
         "monitor_id": os.environ.get("AGENT_MONITOR_ID"),
         "tmux_session": get_tmux_session(),
+        "agent_type": agent_type,
+        "agent_source": agent_source,
         "hook_event": "PreToolUse",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "tool_name": data.get("tool_name"),
@@ -513,11 +531,14 @@ def send_event(data: dict) -> None:
 
     host_info = get_host_info()
     tmux_session = get_tmux_session()
+    agent_type, agent_source = get_agent_identity()
 
     event = {
         "session_id": get_session_id(data),
         "monitor_id": os.environ.get("AGENT_MONITOR_ID"),
         "tmux_session": tmux_session,
+        "agent_type": agent_type,
+        "agent_source": agent_source,
         "hook_event": hook_event,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "tool_name": data.get("tool_name"),

@@ -30,6 +30,13 @@ Default: `http://localhost:8787`
 
 Add to your `~/.bashrc` or `~/.zshrc` for persistence.
 
+Optional identity overrides (normally not needed):
+
+```bash
+export AGENT_COMMAND_AGENT_TYPE="claude-code"
+export AGENT_COMMAND_AGENT_SOURCE="hooks"
+```
+
 ## Server
 
 The monitoring server is available at [daliborhlava/agent-command](https://github.com/daliborhlava/agent-command).
