@@ -15,9 +15,18 @@ SERVER_URL = os.environ.get("AGENT_COMMAND_URL", "http://localhost:8787")
 TIMEOUT = 5
 PERMISSION_TIMEOUT = 300
 MAX_TRANSCRIPT_LINES = 100
-CLIENT_VERSION = "1.2.9"
+CLIENT_VERSION = "1.2.10"
 DEFAULT_AGENT_TYPE = "claude-code"
 DEFAULT_AGENT_SOURCE = "hooks"
+TRANSCRIPT_EVENTS = {
+    "Stop",
+    "SessionStart",
+    "SessionEnd",
+    "PostToolUse",
+    "PostToolUseFailure",
+    "UserPromptSubmit",
+    "SubagentStop",
+}
 
 
 def get_session_id(data: dict) -> str:
@@ -338,6 +347,15 @@ def build_acp_updates(data: dict, hook_event: str | None) -> list[dict]:
     return updates
 
 
+def extract_subagent_result(data: dict) -> str | dict | list | None:
+    """Best-effort extraction of a subagent completion payload."""
+    for key in ("result", "summary", "output", "response", "final"):
+        value = data.get(key)
+        if isinstance(value, (str, dict, list)) and value:
+            return value
+    return None
+
+
 def _send_pre_event(data: dict) -> None:
     """Send a PreToolUse event with transcript to /api/events before long-polling.
 
@@ -567,6 +585,10 @@ def send_event(data: dict) -> None:
         event["subagent_id"] = data.get("subagent_id") or data.get("agent_id")
         event["subagent_task"] = data.get("task") or data.get("description")
         event["subagent_type"] = data.get("agent_type")
+        if hook_event == "SubagentStop":
+            subagent_result = extract_subagent_result(data)
+            if subagent_result is not None:
+                event["extra"]["subagent_result"] = subagent_result
 
     if hook_event in ("Stop", "SubagentStop"):
         event["stop_hook_active"] = data.get("stop_hook_active", False)
@@ -583,7 +605,7 @@ def send_event(data: dict) -> None:
     if "reason" in data:
         event["extra"]["reason"] = data["reason"]
 
-    if hook_event in ("Stop", "SessionStart", "PostToolUse", "PostToolUseFailure", "UserPromptSubmit"):
+    if hook_event in TRANSCRIPT_EVENTS:
         transcript_path = data.get("transcript_path")
         if transcript_path:
             path = Path(transcript_path)
